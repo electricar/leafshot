@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
                              QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
                              QMessageBox, QPushButton, QSystemTrayIcon, QWidget)
 
-from . import capture, icons, ipc
+from . import capture, icons, ipc, wayland
 from .editor import Editor
 from .settings import Settings
 
@@ -30,11 +30,15 @@ class App:
         self.editor.restore_session()
         self._setup_server()
         self._setup_tray()
-        if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
-            QTimer.singleShot(1500, lambda: self.tray_message(
-                "Wayland session detected",
-                "Leafshot captures via X11. On Wayland the screenshot may be black - "
-                "use the X11 Cinnamon session (default on Linux Mint)."))
+        # Wayland: the screen is read through the desktop's screenshot service
+        self.wayland = wayland.is_wayland_session()
+        self.portal = wayland.PortalGrabber() if self.wayland else None
+        wayland.log(f"Leafshot {ipc.VERSION} | Qt platform {QGuiApplication.platformName()} | "
+                    f"session {os.environ.get('XDG_SESSION_TYPE')} / "
+                    f"{os.environ.get('XDG_CURRENT_DESKTOP')} | capture via "
+                    f"{'portal' if self.wayland else 'X11'} | screens " + ", ".join(
+                        f"{s.name()} {s.geometry().getRect()} x{s.devicePixelRatio()}"
+                        for s in QGuiApplication.screens()))
 
     # -- single instance -----------------------------------------------------------
     def _setup_server(self):
@@ -136,7 +140,8 @@ class App:
     DELAYS = (0, 1, 2, 3, 5, 10)
 
     def capture(self, mode, delay=0, from_editor=False, tray=False):
-        if self.overlay is not None or self._pending is not None:
+        if self.overlay is not None or self._pending is not None or \
+                (self.portal is not None and self.portal.busy()):
             return  # already selecting / counting down
         delay = max(float(delay or 0), float(self.settings.get("capture_delay") or 0))
         hide_editor = from_editor and self.editor.isVisible()
@@ -190,13 +195,30 @@ class App:
         self.editor.update_delay_ui()
 
     def _do_capture(self, mode, restore=False):
-        grab = capture.Grab()
+        if self.portal is not None:
+            # asynchronous: the desktop may first ask the user for permission
+            self.portal.grab(lambda img, err=None: self._grabbed(
+                mode, restore, capture.Grab(img) if img is not None else None, err))
+        else:
+            self._grabbed(mode, restore, capture.Grab())
+
+    def _grabbed(self, mode, restore, grab, error=None):
+        if grab is not None:
+            wayland.log(f"grab {grab.image.width()}x{grab.image.height()} scale {grab.scale:.3f} "
+                        f"virtual {grab.virtual.getRect()} mode {mode}")
+        if grab is None:
+            if restore:
+                self.editor.bring_up()
+            if error and error != "cancelled":
+                self.capture_failed(error)
+            return
         if mode == "full":
             self._got(grab, grab.virtual, restore)
         elif mode == "screen":
             self._got(grab, grab.screen_at(QCursor.pos()), restore)
         elif mode == "window":
-            r = capture.active_window_logical(grab)
+            # Wayland never tells apps where other windows are: let the user pick instead
+            r = None if self.wayland else capture.active_window_logical(grab)
             if r is None:
                 self._start_overlay(grab, restore)  # fall back to interactive
             else:
@@ -211,11 +233,14 @@ class App:
             self._start_overlay(grab, restore)
 
     def _start_overlay(self, grab, restore):
-        try:
-            wins = capture.window_rects_logical(grab)
-        except Exception:  # never let window detection break capturing
-            wins = []
-        self.overlay = capture.Overlay(grab, wins)
+        wins = []
+        if not self.wayland:
+            try:
+                wins = capture.window_rects_logical(grab)
+            except Exception:  # never let window detection break capturing
+                wins = []
+        self.overlay = capture.open_overlay(grab, wins,
+                                            wayland=wayland.qt_runs_native_wayland())
 
         def done(rect):
             self.overlay = None
@@ -226,7 +251,14 @@ class App:
             self._got(grab, rect, restore)
 
         self.overlay.done.connect(done)
-        self.overlay.start()
+
+    def capture_failed(self, error):
+        tips = ("Leafshot asks your desktop for the screenshot on Wayland. Check that "
+                "xdg-desktop-portal and the portal for your desktop are installed "
+                "(xdg-desktop-portal-kde / -gnome / -xapp / -wlr). On KDE Plasma 6.4+, "
+                "allow screenshots for Leafshot under System Settings > Application "
+                "Permissions.")
+        QMessageBox.warning(self.editor, "Screenshot failed", f"{error}\n\n{tips}")
 
     def _last_region(self):
         s = self.settings.get("last_region")

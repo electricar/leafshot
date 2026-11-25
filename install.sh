@@ -22,8 +22,20 @@ done
 echo "== Leafshot installer =="
 
 if ! python3 -c "import PyQt6.QtWidgets, PyQt6.QtNetwork" 2>/dev/null; then
-  echo "PyQt6 is missing. Installing python3-pyqt6 (needs your password)…"
-  sudo apt install -y python3-pyqt6
+  echo "PyQt6 is missing. Installing it (needs your password)…"
+  if command -v apt >/dev/null; then sudo apt install -y python3-pyqt6
+  elif command -v dnf >/dev/null; then sudo dnf install -y python3-pyqt6
+  elif command -v pacman >/dev/null; then sudo pacman -S --needed --noconfirm python-pyqt6
+  elif command -v zypper >/dev/null; then sudo zypper install -y python3-PyQt6
+  else echo "Please install PyQt6 for Python 3 with your package manager, then run this again."; exit 1
+  fi
+fi
+
+# Wayland: Qt's Wayland plugin (without it Leafshot still works, through XWayland)
+if [ -n "${WAYLAND_DISPLAY:-}" ] && ! ls /usr/lib*/qt6/plugins/platforms/libqwayland* \
+     /usr/lib/*/qt6/plugins/platforms/libqwayland* >/dev/null 2>&1; then
+  echo "Tip: for native Wayland support install Qt's Wayland plugin"
+  echo "     (qt6-wayland on Debian/Ubuntu/Mint, qt6-qtwayland on Fedora, qt6-wayland on Arch)."
 fi
 
 # stop a running instance so the new code is used

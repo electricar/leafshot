@@ -21,8 +21,8 @@ Press Print, select, annotate, done. Every screenshot stays in one window, and e
 
 ## Requirements
 
-- Linux with an **X11** session (Linux Mint Cinnamon / MATE / XFCE default session). Wayland sessions are not supported yet: screenshots come out black.
-- Python 3 and PyQt6 (`python3-pyqt6` on Debian / Ubuntu / Mint; the installer installs it if it's missing).
+- Linux with an **X11** session (Linux Mint Cinnamon / MATE / XFCE default session), or **Wayland (beta)**: KDE Plasma, GNOME, Cinnamon on Wayland and wlroots desktops, through the desktop's screenshot portal. On Wayland, "click a window" isn't available, because Wayland doesn't let apps see other windows. See [TESTING-WAYLAND.md](TESTING-WAYLAND.md).
+- Python 3 and PyQt6 (the installer installs it if it's missing, with apt / dnf / pacman / zypper).
 - The Print-key hotkeys are set up automatically on Cinnamon; on other desktops add a custom shortcut for `~/.local/bin/leafshot region`.
 
 ## Install
@@ -106,7 +106,7 @@ The same actions are available from the command line: `leafshot region|window|fu
 ## Troubleshooting
 
 - **Print does nothing:** check System Settings → Keyboard → Shortcuts → Custom shortcuts for the "Leafshot:" entries. You can also run `python3 ~/.local/share/leafshot/hotkeys.py install ~/.local/bin/leafshot` again.
-- **Black screenshot:** you are probably in a Wayland session. Leafshot captures through X11, which is Mint's default session.
+- **Wayland: "Your desktop refused the screenshot":** your desktop's screenshot permission for Leafshot was denied; see [TESTING-WAYLAND.md](TESTING-WAYLAND.md). Run `LEAFSHOT_DEBUG=1 leafshot` in a terminal to see what happens.
 - **To see errors:** quit from the tray, then start `leafshot` from a terminal.
 
 ## Uninstall
