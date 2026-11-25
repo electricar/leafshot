@@ -2,7 +2,7 @@
 
 <h1 align="center">Leafshot</h1>
 
-<p align="center"><b>A Greenshot-style screenshot and annotation tool for Linux Mint (Cinnamon, X11).</b><br>
+<p align="center"><b>A screenshot and annotation tool for Linux Mint (Cinnamon, X11), inspired by Greenshot.</b><br>
 Press Print, select, annotate, done. Every screenshot stays in one window, and every annotation stays editable.</p>
 
 ![Leafshot editor](docs/editor.png)
@@ -13,7 +13,7 @@ Press Print, select, annotate, done. Every screenshot stays in one window, and e
 - **Annotations stay objects:** select, move, resize and restyle arrows, boxes and texts at any time. **Ctrl+C / Ctrl+V** copies annotations, even into another screenshot.
 - **Editable text:** double-click to change it later. Pick any font, bold / italic / underline, left / center / right, fill and frame.
 - **Tools:** rectangle, ellipse, line, arrow, freehand, highlighter (also on dark backgrounds), text, numbered steps, pixelate, **cover** (fills with the surrounding background so text disappears without a trace), crop, and an eyedropper.
-- **Capture like Greenshot:** drag a region or click a window, with a magnifier for pixel-exact edges. Also active window, a single monitor, all monitors, repeat last region, and a **delay** with a countdown in the tray, for capturing open menus.
+- **Quick capture:** drag a region or click a window, with a magnifier for pixel-exact edges. Also active window, a single monitor, all monitors, repeat last region, and a **delay** with a countdown in the tray, for capturing open menus.
 - **Nothing gets lost:** open screenshots survive quitting, reboots and crashes. Save editable `.leafshot` files and continue another day.
 - **Fast:** stays in the background; a hotkey press is handed over in about 40 ms.
 
@@ -116,4 +116,4 @@ The same actions are available from the command line: `leafshot region|window|fu
 ## License
 
 Leafshot is free software under the [GNU General Public License v3.0](LICENSE).
-It is inspired by Greenshot but not affiliated with Greenshot or Linux Mint.
+It is inspired by Greenshot, but not affiliated with Greenshot or Linux Mint.
