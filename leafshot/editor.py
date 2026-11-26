@@ -1274,6 +1274,8 @@ class Editor(QMainWindow):
             if d in self.docs:
                 self.store.save(d)
         self._session_dirty.clear()
+        if complete:
+            self.store.wait()  # quitting: make sure everything is on disk
 
     def restore_session(self):
         n = 0

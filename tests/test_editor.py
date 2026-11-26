@@ -448,6 +448,7 @@ loaded = ed.store.load_all()
 check(len(loaded) == len(ed.docs), f"session holds all {len(ed.docs)} screenshots ({len(loaded)})")
 uid = ed.docs[-1].uid
 ed.close_doc(ed.docs[-1], ask=False)
+ed.store.wait()  # session writes run in the background
 check(not os.path.exists(os.path.join(ed.store.dir, uid + ".leafshot")), "closing a tab removes it from the session")
 # restore into a fresh editor
 from leafshot.editor import Editor  # noqa: E402
@@ -606,6 +607,20 @@ app.quit = real_quit
 ed.settings.set("close_action", "background")
 ed.show()
 
+# --- saving the session never blocks annotating ---------------------------------------------
+import time as _t  # noqa: E402
+big = ed.add_document(mk_image(3840, 2160, "#334455"))
+from leafshot import project as _P  # noqa: E402
+_P._PNG_CACHE.clear()
+t0 = _t.perf_counter(); ed.flush_session(); t_ui = _t.perf_counter() - t0
+check(t_ui < 0.05, f"session save of a 4K screenshot doesn't block the UI ({1000*t_ui:.0f} ms)")
+ed.store.wait()
+k = big.background.cacheKey()
+check(k in _P._PNG_CACHE, "screenshot PNG encoded once and cached")
+t0 = _t.perf_counter(); ed._session_dirty.add(big); ed.flush_session(); ed.store.wait()
+check(_t.perf_counter() - t0 < 0.15, "later saves reuse the cached PNG (fast)")
+ed.close_doc(big, ask=False)
+
 # --- close all / clear the list ------------------------------------------------------------
 ed.flush_session(complete=True)
 keep = ed.docs[0]
@@ -614,6 +629,7 @@ check(n > 1 and ed.clear_btn.isVisible() and "(%d)" % n in ed.count_label.text()
 check(ed.close_all(keep=keep, ask=False) and ed.docs == [keep], "Close all others keeps just one")
 check(ed.close_all(ask=False) and ed.docs == [], "Clear all closes everything")
 check(ed.stack.currentWidget() is ed.placeholder and not ed.clear_btn.isVisible(), "empty state shown, button hidden")
+ed.store.wait()
 check(nfiles() == 0, "cleared screenshots are gone from the session too")
 ed.w_family._picked("Sans")
 check("Sans" in ed.w_family._families, "system default 'Sans' can be picked again")
