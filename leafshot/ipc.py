@@ -8,7 +8,7 @@ import time
 
 APP_NAME = "leafshot"
 APP_TITLE = "Leafshot"
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 
 COMMANDS = ("region", "window", "full", "screen", "last", "show", "open", "quit")
 
