@@ -495,6 +495,11 @@ check(abs(r.pos().x() - 10) < 1, f"objects shifted with crop {r.pos()}")
 ed.a_undo.trigger()
 check(doc.background.width() == 800, "crop undone")
 
+# --- copy image: pure image data (Discord & sandboxed apps) ------------------------------
+ed.copy_image(doc)
+md = QGuiApplication.clipboard().mimeData()
+check(md.hasImage() and not md.hasUrls(), "Copy image puts only the image on the clipboard, no file URL")
+
 # --- save ------------------------------------------------------------------------------
 ok = ed.save_doc(doc, quiet=True)
 check(ok and os.path.exists(doc.path), f"saved to {doc.path}")

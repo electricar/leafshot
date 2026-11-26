@@ -1096,8 +1096,9 @@ class Editor(QMainWindow):
             return
         img = doc.render_image()
         md = QMimeData()
+        # image data only: with an extra file:// URL some apps (Discord, sandboxed
+        # Flatpak/Snap apps that can't see /tmp) try to upload that file instead and fail
         md.setImageData(img)
-        md.setUrls([QUrl.fromLocalFile(self.temp_png(doc, img))])
         QGuiApplication.clipboard().setMimeData(md)
         self.status("Image copied to clipboard")
 
