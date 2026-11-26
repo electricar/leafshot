@@ -12,7 +12,9 @@ the .leafshot file, if it contains hidden secrets.
 """
 import json
 import os
+import queue
 import shutil
+import threading
 import time
 import uuid
 import zipfile
@@ -40,8 +42,27 @@ def doc_annotation_states(doc):
     return [it.get_state() for it in its]
 
 
-def write_project(doc, path, include_preview=True):
-    meta = {
+# The screenshot itself never changes while you annotate (a crop makes a new image),
+# so its PNG is encoded once and reused for every later save of that screenshot.
+_PNG_CACHE = {}  # QImage.cacheKey() -> PNG bytes
+_PNG_LOCK = threading.Lock()
+
+
+def background_png(img):
+    key = img.cacheKey()
+    with _PNG_LOCK:
+        data = _PNG_CACHE.get(key)
+    if data is None:
+        data = _png_bytes(img)
+        with _PNG_LOCK:
+            if len(_PNG_CACHE) > 24:
+                _PNG_CACHE.pop(next(iter(_PNG_CACHE)))
+            _PNG_CACHE[key] = data
+    return data
+
+
+def _meta(doc):
+    return {
         "format": FORMAT,
         "app": "leafshot",
         "title": doc.title,
@@ -50,21 +71,32 @@ def write_project(doc, path, include_preview=True):
         "saved": time.time(),
         "modified": doc.is_modified(),
     }
-    states = I.states_to_json_ready(doc_annotation_states(doc))
+
+
+def _write_zip(path, meta, background, states_json, preview_png=None):
+    """background: QImage (PNG-encoded via the cache) or ready PNG bytes."""
+    bg = background if isinstance(background, (bytes, bytearray)) else background_png(background)
     tmp = path + ".tmp"
     with zipfile.ZipFile(tmp, "w") as z:
         z.writestr("meta.json", json.dumps(meta, indent=1))
         # PNG is already compressed - store it as is
-        z.writestr(zipfile.ZipInfo("background.png"), _png_bytes(doc.background),
-                   compress_type=zipfile.ZIP_STORED)
-        z.writestr("annotations.json", json.dumps(states), compress_type=zipfile.ZIP_DEFLATED)
-        if include_preview:
-            prev = doc.render_image().scaled(
-                320, 320, Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation)
-            z.writestr(zipfile.ZipInfo("preview.png"), _png_bytes(prev),
+        z.writestr(zipfile.ZipInfo("background.png"), bg, compress_type=zipfile.ZIP_STORED)
+        z.writestr("annotations.json", states_json, compress_type=zipfile.ZIP_DEFLATED)
+        if preview_png is not None:
+            z.writestr(zipfile.ZipInfo("preview.png"), preview_png,
                        compress_type=zipfile.ZIP_STORED)
     os.replace(tmp, path)  # atomic: never leaves a half-written project behind
+
+
+def write_project(doc, path, include_preview=True):
+    states = json.dumps(I.states_to_json_ready(doc_annotation_states(doc)))
+    preview = None
+    if include_preview:
+        prev = doc.render_image().scaled(
+            320, 320, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+        preview = _png_bytes(prev)
+    _write_zip(path, _meta(doc), doc.background, states, preview)
 
 
 def read_project(path):
@@ -85,12 +117,19 @@ def is_project(path):
 
 # ---------------------------------------------------------------------------
 class SessionStore:
-    """Keeps every open screenshot on disk so nothing is lost on quit, crash or logout."""
+    """Keeps every open screenshot on disk so nothing is lost on quit, crash or logout.
+
+    Saving runs on a background thread, so annotating never waits for the disk or
+    for PNG encoding. Jobs run in order, so a 'remove' can't be undone by an older save.
+    """
 
     def __init__(self):
         base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
         self.dir = os.path.join(base, "leafshot", "session")
         os.makedirs(self.dir, exist_ok=True)
+        self._q = queue.Queue()
+        self._worker = threading.Thread(target=self._run, name="leafshot-session", daemon=True)
+        self._worker.start()
 
     def path_for(self, doc):
         if not getattr(doc, "uid", None):
@@ -98,16 +137,36 @@ class SessionStore:
         return os.path.join(self.dir, doc.uid + EXT)
 
     def save(self, doc):
+        # snapshot on the UI thread (cheap); encoding + writing happen in the background
         try:
-            write_project(doc, self.path_for(doc), include_preview=False)
-        except OSError:
-            pass
+            states = json.dumps(I.states_to_json_ready(doc_annotation_states(doc)))
+        except Exception:  # never let a save break annotating
+            return
+        self._q.put(("save", self.path_for(doc), _meta(doc), QImage(doc.background), states))
 
     def remove(self, doc):
-        try:
-            os.remove(self.path_for(doc))
-        except OSError:
-            pass
+        self._q.put(("remove", self.path_for(doc)))
+
+    def wait(self):
+        """Block until every queued save/remove is on disk (quit, tests)."""
+        self._q.join()
+
+    def _run(self):
+        while True:
+            job = self._q.get()
+            try:
+                if job[0] == "save":
+                    _, path, meta, bg, states = job
+                    _write_zip(path, meta, bg, states)
+                elif job[0] == "remove":
+                    try:
+                        os.remove(job[1])
+                    except FileNotFoundError:
+                        pass
+            except Exception:  # a failed write must not kill the worker
+                pass
+            finally:
+                self._q.task_done()
 
     def load_all(self):
         out = []
@@ -124,5 +183,6 @@ class SessionStore:
         return out
 
     def clear(self):
+        self.wait()
         shutil.rmtree(self.dir, ignore_errors=True)
         os.makedirs(self.dir, exist_ok=True)
